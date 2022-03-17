@@ -1,0 +1,9 @@
+name: tsne_clusters
+channels:
+  - defaults
+dependencies:
+  - python
+  - scikit-learn
+  - pandas
+  - matplotlib
+  - scikit-image
