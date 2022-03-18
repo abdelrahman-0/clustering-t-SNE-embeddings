@@ -8,6 +8,13 @@ Behaviors of organisms are sometimes encoded as high-dimensional feature vectors
 <img src='iris.png'  width=70%>
 </p>
 
+### Usage
+Install conda environment, activate it and run the following command in your terminal:
+
+```bash
+python main.py -path data.csv
+```
+
 ### References:
 
 Berman, Gordon J., et al. "Mapping the stereotyped behaviour of freely moving fruit flies." Journal of The Royal Society Interface 11.99 (2014): 20140672.
