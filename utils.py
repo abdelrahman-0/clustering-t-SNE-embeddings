@@ -1,12 +1,14 @@
 import argparse
 import os
+import matplotlib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from scipy.stats import gaussian_kde
-from skimage.segmentation import watershed
-from sklearn import preprocessing
+from skimage.segmentation import watershed, find_boundaries
+from sklearn import cluster, preprocessing
+from scipy.spatial import ConvexHull
 
 def parse_args():
     '''
@@ -32,20 +34,26 @@ def embed_data(data: pd.DataFrame, **kwargs):
     normalized_data = preprocessing.StandardScaler().fit_transform(data)
     model = TSNE(n_components=2, learning_rate='auto', init='pca', **kwargs)
     embedded_data = model.fit_transform(normalized_data)
+    # plt.scatter(embedded_data[:, 0], embedded_data[:, 1], c='red', s=1)
+    # plt.show()
     return embedded_data
 
-def get_density_matrix(data: np.array, resolution=100):
+def get_positions_from_data(data: np.array, resolution=500):
+    xmin, xmax = data[:, 0].min(), data[:, 0].max()
+    ymin, ymax = data[:, 1].min(), data[:, 1].max()
+    X, Y = np.meshgrid(np.linspace(xmin, xmax, resolution), np.linspace(ymin, ymax, resolution))
+    positions = np.array([X.ravel(), Y.ravel()])
+    return positions, X.shape
+
+def get_density_matrix(data: np.array):
     '''
     Returns a (resolution, resolution) 2D matrix containing the evaluations
     of a KDE model that was fitted using the data.
     '''
-    xmin, xmax = data[:, 0].min(), data[:, 0].max()
-    ymin, ymax = data[:, 1].min(), data[:, 1].max()
     kde_model = gaussian_kde(data.T)
-    X, Y = np.meshgrid(np.linspace(xmin, xmax, resolution), np.linspace(ymin, ymax, resolution))
-    positions = np.array([X.ravel(), Y.ravel()])
-    estimated_data = np.reshape(kde_model(positions).T, X.shape)
-    return estimated_data
+    positions, shape = get_positions_from_data(data)
+    density_matrix = np.reshape(kde_model(positions).T, shape)
+    return positions, density_matrix
 
 def get_cluster_labels(density_matrix: np.array):
     '''
@@ -61,17 +69,44 @@ def cluster_data(data: np.array):
     assert len(data.shape)==2, 'Incorrect embedding shape.'
     assert data.shape[1]==2, 'Expected 2D embeddings to plot.'
     assert data.shape[0]>=1, 'Empty embeddings list.'
-    density_matrix = get_density_matrix(data, resolution=1000)
+    positions, density_matrix = get_density_matrix(data)
     cluster_labels = get_cluster_labels(density_matrix)
-    return cluster_labels
+    return positions, density_matrix, cluster_labels
 
-def show_clustered_data(data: np.array, save=False):
+def plot_convex_hull(positions, image, points):
+    '''
+    Mask out points outside the convex hull our 2D embeddings (for visualization purposes).
+    '''
+    convex_hull = ConvexHull(points)
+    points_path = matplotlib.path.Path(points[convex_hull.vertices])
+    mask = points_path.contains_points(positions.T).reshape(image.shape[:2])
+    image[mask == False] = [1,1,1]
+    plt.imshow(image)
+    minx = points[:, 0].min()
+    maxx = points[:, 0].max()
+    miny = points[:, 1].min()
+    maxy = points[:, 1].max()
+    h, w = image.shape[:2]
+    for simplex in convex_hull.simplices:
+        plt.plot((points[simplex, 0]-minx)*w/(maxx-minx), (points[simplex, 1]-miny)*h/(maxy-miny), c='black')
+    plt.xticks([])
+    plt.yticks([])
+    plt.gca().invert_yaxis()
+    plt.axis('off')
+    plt.show()
+    return image
+
+def show_clustered_data(positions: np.array, embedded_data: np.array, density_matrix: np.array, clustered_data: np.array, save=False):
     '''
     Plot and save embedded data as 2D points.
     '''
     plot_name = 'test.png'
-    plt.imshow(data, cmap='plasma')
+    watershed_boundaries = find_boundaries(clustered_data, mode='inner')
+    im = plt.imshow(density_matrix, cmap='viridis')
+    overlayed_img = im.cmap(im.norm(density_matrix))[:, :, :3]
+    overlayed_img[watershed_boundaries==1] = [0,0,0]
+    final_plot = plot_convex_hull(positions, overlayed_img, embedded_data)
     if save:
-        plt.savefig(plot_name)
+        plt.imsave(plot_name, final_plot)
         print('Saved plot at:', plot_name, sep=' ')
-    plt.show()
+    return
