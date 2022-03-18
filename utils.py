@@ -7,8 +7,10 @@ import matplotlib.pyplot as plt
 from sklearn.manifold import TSNE
 from scipy.stats import gaussian_kde
 from skimage.segmentation import watershed, find_boundaries
-from sklearn import cluster, preprocessing
+from sklearn import preprocessing
 from scipy.spatial import ConvexHull
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+
 
 def parse_args():
     '''
@@ -29,7 +31,8 @@ def get_data(path: str):
 
 def embed_data(data: pd.DataFrame, **kwargs):
     '''
-    Embed high-dimensional data into a 2D space using t-SNE
+    Embed high-dimensional data into a 2D space using t-SNE.
+    The perplexity value can significantly affect the number of regions in the final plot.
     '''
     normalized_data = preprocessing.StandardScaler().fit_transform(data)
     model = TSNE(n_components=2, learning_rate='auto', init='pca', **kwargs)
@@ -39,6 +42,9 @@ def embed_data(data: pd.DataFrame, **kwargs):
     return embedded_data
 
 def get_positions_from_data(data: np.array, resolution=500):
+    '''
+    Returns a mesh grid created from the minimum and maximum points of the data.
+    '''
     xmin, xmax = data[:, 0].min(), data[:, 0].max()
     ymin, ymax = data[:, 1].min(), data[:, 1].max()
     X, Y = np.meshgrid(np.linspace(xmin, xmax, resolution), np.linspace(ymin, ymax, resolution))
@@ -73,6 +79,22 @@ def cluster_data(data: np.array):
     cluster_labels = get_cluster_labels(density_matrix)
     return positions, density_matrix, cluster_labels
 
+def get_image_from_plot():
+    '''
+    Get RGB image from plot.
+    '''
+    plt.gca().invert_yaxis()
+    plt.xticks([])
+    plt.yticks([])
+    plt.axis('off')
+    plt.tight_layout(pad=0)
+    plt.gca().margins(0)
+    plt.gcf().canvas.draw()
+    image = np.frombuffer(plt.gcf().canvas.tostring_rgb(), dtype=np.uint8)
+    image = image.reshape(plt.gcf().canvas.get_width_height()[::-1] + (3,))
+    return image
+
+
 def plot_convex_hull(positions, image, points):
     '''
     Mask out points outside the convex hull our 2D embeddings (for visualization purposes).
@@ -87,26 +109,21 @@ def plot_convex_hull(positions, image, points):
     miny = points[:, 1].min()
     maxy = points[:, 1].max()
     h, w = image.shape[:2]
+    # Plot outline of hull
     for simplex in convex_hull.simplices:
         plt.plot((points[simplex, 0]-minx)*w/(maxx-minx), (points[simplex, 1]-miny)*h/(maxy-miny), c='black')
-    plt.xticks([])
-    plt.yticks([])
-    plt.gca().invert_yaxis()
-    plt.axis('off')
-    plt.show()
-    return image
+    return get_image_from_plot()
 
-def show_clustered_data(positions: np.array, embedded_data: np.array, density_matrix: np.array, clustered_data: np.array, save=False):
+def show_clustered_data(data_path: str, positions: np.array, embedded_data: np.array, density_matrix: np.array, clustered_data: np.array):
     '''
     Plot and save embedded data as 2D points.
     '''
-    plot_name = 'test.png'
+    plot_name = os.path.splitext(data_path)[0] + '.png'
     watershed_boundaries = find_boundaries(clustered_data, mode='inner')
-    im = plt.imshow(density_matrix, cmap='viridis')
+    im = plt.imshow(density_matrix, cmap='plasma')
     overlayed_img = im.cmap(im.norm(density_matrix))[:, :, :3]
     overlayed_img[watershed_boundaries==1] = [0,0,0]
     final_plot = plot_convex_hull(positions, overlayed_img, embedded_data)
-    if save:
-        plt.imsave(plot_name, final_plot)
-        print('Saved plot at:', plot_name, sep=' ')
+    plt.imsave(plot_name, final_plot)
+    print('Plot saved at', plot_name, sep=' ')
     return

@@ -131,3 +131,5 @@ dmypy.json
 # Additional ignores
 *.csv
 *.png
+!iris.csv
+!iris.png
