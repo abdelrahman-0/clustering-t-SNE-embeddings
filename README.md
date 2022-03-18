@@ -5,7 +5,7 @@ Behaviors of organisms are sometimes encoded as high-dimensional feature vectors
 
 <br>
 <p align='center'>
-<img src='iris.png'  width=30%>
+<img src='iris.png'  width=45%>
 </p>
 
 ### Usage

@@ -8,7 +8,7 @@ if __name__ == '__main__':
     data = get_data(args.path)
 
     # Embed data into 2D space.
-    embedded_data = embed_data(data, perplexity=10)
+    embedded_data = embed_data(data)
 
     # Cluster data
     positions, density_matrix, clustered_data = cluster_data(embedded_data)

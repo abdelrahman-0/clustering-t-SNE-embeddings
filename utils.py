@@ -11,6 +11,9 @@ from skimage.segmentation import watershed, find_boundaries
 from sklearn import preprocessing
 from scipy.spatial import ConvexHull
 
+DENSITY_THRESHOLD = 5e-5
+PERPLEXITY = 10
+PAD_RATIO = 0.22
 
 def parse_args():
     '''
@@ -26,8 +29,8 @@ def get_data(path: str):
     '''
     assert path.endswith('.csv'), 'Invalid file format. Only .csv files are supported.'
     assert os.path.exists(path), 'File not found.'
-    data = pd.read_csv(path)
-    return data
+    dataframe = pd.read_csv(path)
+    return dataframe
 
 def embed_data(data: pd.DataFrame, **kwargs):
     '''
@@ -35,7 +38,7 @@ def embed_data(data: pd.DataFrame, **kwargs):
     The perplexity value can significantly affect the number of regions in the final plot.
     '''
     normalized_data = preprocessing.StandardScaler().fit_transform(data)
-    model = TSNE(n_components=2, learning_rate='auto', init='pca', **kwargs)
+    model = TSNE(n_components=2, learning_rate='auto', init='pca', perplexity=PERPLEXITY, **kwargs)
     embedded_data = model.fit_transform(normalized_data)
     # plt.scatter(embedded_data[:, 0], embedded_data[:, 1], c='red', s=1)
     # plt.show()
@@ -47,6 +50,12 @@ def get_positions_from_data(data: np.array, resolution=1000):
     '''
     xmin, xmax = data[:, 0].min(), data[:, 0].max()
     ymin, ymax = data[:, 1].min(), data[:, 1].max()
+    xrange = xmax - xmin
+    yrange = ymax - ymin
+    xmin -= PAD_RATIO * xrange
+    xmax += PAD_RATIO * xrange
+    ymin -= PAD_RATIO * yrange
+    ymax += PAD_RATIO * yrange
     X, Y = np.meshgrid(np.linspace(xmin, xmax, resolution), np.linspace(ymin, ymax, resolution))
     positions = np.array([X.ravel(), Y.ravel()])
     return positions, X.shape
@@ -71,8 +80,10 @@ def get_cluster_labels(density_matrix: np.array):
     Cluster the points in the density matrix using the watershed algorithm.
     '''
     inverted_matrix = -density_matrix
-    mask = density_matrix > 5e-5
-    return watershed(inverted_matrix, mask=mask)
+    mask = density_matrix > DENSITY_THRESHOLD
+    cluster_mask = watershed(inverted_matrix, mask=mask)
+    print('Found {} unique clusters'.format(len(np.unique(cluster_mask))-1))
+    return cluster_mask
 
 def cluster_data(data: np.array):
     '''
@@ -121,6 +132,9 @@ def plot_convex_hull(positions, image, points):
     return get_image_from_plot()
 
 def set_white_pixels_transparent(image):
+    '''
+    Set all white pixels as transparent pixels.
+    '''
     h, w, _ = image.shape
     new_image = np.concatenate([image, np.full((h, w, 1), 1, dtype=image.dtype)], axis=-1)
     white = np.all(image == [1, 1, 1], axis=-1)
