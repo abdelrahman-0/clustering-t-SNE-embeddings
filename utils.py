@@ -4,12 +4,12 @@ import matplotlib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import cv2
 from sklearn.manifold import TSNE
 from scipy.stats import gaussian_kde
 from skimage.segmentation import watershed, find_boundaries
 from sklearn import preprocessing
 from scipy.spatial import ConvexHull
-from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 
 def parse_args():
@@ -41,7 +41,7 @@ def embed_data(data: pd.DataFrame, **kwargs):
     # plt.show()
     return embedded_data
 
-def get_positions_from_data(data: np.array, resolution=500):
+def get_positions_from_data(data: np.array, resolution=1000):
     '''
     Returns a mesh grid created from the minimum and maximum points of the data.
     '''
@@ -50,6 +50,11 @@ def get_positions_from_data(data: np.array, resolution=500):
     X, Y = np.meshgrid(np.linspace(xmin, xmax, resolution), np.linspace(ymin, ymax, resolution))
     positions = np.array([X.ravel(), Y.ravel()])
     return positions, X.shape
+
+def apply_cmap_to_matrix(mat, cmap='viridis'):
+    h, w = mat.shape
+    colormap = plt.get_cmap(cmap)
+    return np.array(list(map(colormap, mat.ravel()))).reshape((h, w, 4))[..., :3]
 
 def get_density_matrix(data: np.array):
     '''
@@ -66,7 +71,8 @@ def get_cluster_labels(density_matrix: np.array):
     Cluster the points in the density matrix using the watershed algorithm.
     '''
     inverted_matrix = -density_matrix
-    return watershed(inverted_matrix)
+    mask = density_matrix > 5e-5
+    return watershed(inverted_matrix, mask=mask)
 
 def cluster_data(data: np.array):
     '''
@@ -87,8 +93,8 @@ def get_image_from_plot():
     plt.xticks([])
     plt.yticks([])
     plt.axis('off')
-    plt.tight_layout(pad=0)
-    plt.gca().margins(0)
+    # plt.tight_layout(pad=0)
+    # plt.gca().margins(0)
     plt.gcf().canvas.draw()
     image = np.frombuffer(plt.gcf().canvas.tostring_rgb(), dtype=np.uint8)
     image = image.reshape(plt.gcf().canvas.get_width_height()[::-1] + (3,))
@@ -114,16 +120,26 @@ def plot_convex_hull(positions, image, points):
         plt.plot((points[simplex, 0]-minx)*w/(maxx-minx), (points[simplex, 1]-miny)*h/(maxy-miny), c='black')
     return get_image_from_plot()
 
+def set_white_pixels_transparent(image):
+    h, w, _ = image.shape
+    new_image = np.concatenate([image, np.full((h, w, 1), 1, dtype=image.dtype)], axis=-1)
+    white = np.all(image == [1, 1, 1], axis=-1)
+    new_image[white, -1] = 0
+    return new_image
+
+
 def show_clustered_data(data_path: str, positions: np.array, embedded_data: np.array, density_matrix: np.array, clustered_data: np.array):
     '''
     Plot and save embedded data as 2D points.
     '''
     plot_name = os.path.splitext(data_path)[0] + '.png'
-    watershed_boundaries = find_boundaries(clustered_data, mode='inner')
-    im = plt.imshow(density_matrix, cmap='plasma')
-    overlayed_img = im.cmap(im.norm(density_matrix))[:, :, :3]
-    overlayed_img[watershed_boundaries==1] = [0,0,0]
-    final_plot = plot_convex_hull(positions, overlayed_img, embedded_data)
+    watershed_boundaries = find_boundaries(clustered_data, mode='thick')
+    im = plt.imshow(density_matrix, cmap='viridis')
+    final_plot = im.cmap(im.norm(density_matrix))[:, :, :3]
+    final_plot[clustered_data == 0] = [1,1,1]
+    final_plot[watershed_boundaries==1] = [0,0,0]
+    final_plot = set_white_pixels_transparent(final_plot)
+    # final_plot = plot_convex_hull(positions, overlayed_img, embedded_data)
     plt.imsave(plot_name, final_plot)
     print('Plot saved at', plot_name, sep=' ')
     return
