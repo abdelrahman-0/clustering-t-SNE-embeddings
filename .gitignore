@@ -133,3 +133,4 @@ dmypy.json
 *.png
 !iris.csv
 !iris.png
+!iris_embeddings.png

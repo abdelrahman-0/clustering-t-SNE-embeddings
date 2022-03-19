@@ -5,15 +5,18 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import cv2
-from sklearn.manifold import TSNE
+from sklearn.manifold import TSNE, Isomap
+from sklearn.decomposition import PCA
 from scipy.stats import gaussian_kde
 from skimage.segmentation import watershed, find_boundaries
 from sklearn import preprocessing
 from scipy.spatial import ConvexHull
 
+METHODS=['pca', 'tsne', 'isomap']
+
 DENSITY_THRESHOLD = 5e-5
-PERPLEXITY = 10
-PAD_RATIO = 0.22
+PERPLEXITY = 30
+PAD_RATIO = 0.5
 
 def parse_args():
     '''
@@ -22,6 +25,7 @@ def parse_args():
     parser = argparse.ArgumentParser(description='Unsupervised clustering of high-dimensional points using t-SNE and the watershed algorithm.')
     parser.add_argument('-path', help='path to .csv data file. Each column in the .csv file should contain one attribute.', required=True)
     return parser.parse_args()
+    
 
 def get_data(path: str):
     '''
@@ -32,17 +36,52 @@ def get_data(path: str):
     dataframe = pd.read_csv(path)
     return dataframe
 
-def embed_data(data: pd.DataFrame, **kwargs):
+
+def apply_tsne(data: pd.DataFrame):
+    '''
+    Embed data using t-SNE.
+    '''
+    model = TSNE(n_components=2, learning_rate='auto', init='pca', perplexity=PERPLEXITY)
+    embedded_data = model.fit_transform(data)
+    return embedded_data
+
+
+def apply_pca(data: pd.DataFrame):
+    '''
+    Embed data using PCA.
+    '''
+    model = PCA(n_components=2)
+    embedded_data = model.fit_transform(data)
+    return embedded_data
+
+
+def apply_isomap(data: pd.DataFrame):
+    '''
+    Embed data using Isomap.
+    '''
+    model = Isomap(n_components=2, n_neighbors=15)
+    embedded_data = model.fit_transform(data)
+    return embedded_data
+
+
+def embed_data(data: pd.DataFrame, method='tsne'):
     '''
     Embed high-dimensional data into a 2D space using t-SNE.
     The perplexity value can significantly affect the number of regions in the final plot.
     '''
+    assert method in METHODS, 'embedding method not supported.'
     normalized_data = preprocessing.StandardScaler().fit_transform(data)
-    model = TSNE(n_components=2, learning_rate='auto', init='pca', perplexity=PERPLEXITY, **kwargs)
-    embedded_data = model.fit_transform(normalized_data)
-    # plt.scatter(embedded_data[:, 0], embedded_data[:, 1], c='red', s=1)
-    # plt.show()
+    if method == 'tsne':
+        embedded_data = apply_tsne(normalized_data)
+    elif method == 'pca':
+        embedded_data = apply_pca(normalized_data)
+    elif method == 'isomap':
+        embedded_data = apply_isomap(normalized_data)
+    color_dict = {'Iris-setosa' : 'red',
+                'Iris-versicolor' : '#00aaff',
+                'Iris-virginica' : '#00ff00'}
     return embedded_data
+
 
 def get_positions_from_data(data: np.array, resolution=1000):
     '''
@@ -60,10 +99,6 @@ def get_positions_from_data(data: np.array, resolution=1000):
     positions = np.array([X.ravel(), Y.ravel()])
     return positions, X.shape
 
-def apply_cmap_to_matrix(mat, cmap='viridis'):
-    h, w = mat.shape
-    colormap = plt.get_cmap(cmap)
-    return np.array(list(map(colormap, mat.ravel()))).reshape((h, w, 4))[..., :3]
 
 def get_density_matrix(data: np.array):
     '''
@@ -75,6 +110,7 @@ def get_density_matrix(data: np.array):
     density_matrix = np.reshape(kde_model(positions).T, shape)
     return positions, density_matrix
 
+
 def get_cluster_labels(density_matrix: np.array):
     '''
     Cluster the points in the density matrix using the watershed algorithm.
@@ -84,6 +120,7 @@ def get_cluster_labels(density_matrix: np.array):
     cluster_mask = watershed(inverted_matrix, mask=mask)
     print('Found {} unique clusters'.format(len(np.unique(cluster_mask))-1))
     return cluster_mask
+
 
 def cluster_data(data: np.array):
     '''
@@ -96,40 +133,6 @@ def cluster_data(data: np.array):
     cluster_labels = get_cluster_labels(density_matrix)
     return positions, density_matrix, cluster_labels
 
-def get_image_from_plot():
-    '''
-    Get RGB image from plot.
-    '''
-    plt.gca().invert_yaxis()
-    plt.xticks([])
-    plt.yticks([])
-    plt.axis('off')
-    # plt.tight_layout(pad=0)
-    # plt.gca().margins(0)
-    plt.gcf().canvas.draw()
-    image = np.frombuffer(plt.gcf().canvas.tostring_rgb(), dtype=np.uint8)
-    image = image.reshape(plt.gcf().canvas.get_width_height()[::-1] + (3,))
-    return image
-
-
-def plot_convex_hull(positions, image, points):
-    '''
-    Mask out points outside the convex hull our 2D embeddings (for visualization purposes).
-    '''
-    convex_hull = ConvexHull(points)
-    points_path = matplotlib.path.Path(points[convex_hull.vertices])
-    mask = points_path.contains_points(positions.T).reshape(image.shape[:2])
-    image[mask == False] = [1,1,1]
-    plt.imshow(image)
-    minx = points[:, 0].min()
-    maxx = points[:, 0].max()
-    miny = points[:, 1].min()
-    maxy = points[:, 1].max()
-    h, w = image.shape[:2]
-    # Plot outline of hull
-    for simplex in convex_hull.simplices:
-        plt.plot((points[simplex, 0]-minx)*w/(maxx-minx), (points[simplex, 1]-miny)*h/(maxy-miny), c='black')
-    return get_image_from_plot()
 
 def set_white_pixels_transparent(image):
     '''
@@ -142,18 +145,17 @@ def set_white_pixels_transparent(image):
     return new_image
 
 
-def show_clustered_data(data_path: str, positions: np.array, embedded_data: np.array, density_matrix: np.array, clustered_data: np.array):
+def show_clustered_data(data_path: str, density_matrix: np.array, clustered_data: np.array):
     '''
     Plot and save embedded data as 2D points.
     '''
     plot_name = os.path.splitext(data_path)[0] + '.png'
     watershed_boundaries = find_boundaries(clustered_data, mode='thick')
-    im = plt.imshow(density_matrix, cmap='viridis')
+    im = plt.imshow(density_matrix, cmap='jet', aspect='auto')
     final_plot = im.cmap(im.norm(density_matrix))[:, :, :3]
     final_plot[clustered_data == 0] = [1,1,1]
     final_plot[watershed_boundaries==1] = [0,0,0]
     final_plot = set_white_pixels_transparent(final_plot)
-    # final_plot = plot_convex_hull(positions, overlayed_img, embedded_data)
-    plt.imsave(plot_name, final_plot)
+    plt.imsave(plot_name, final_plot[::-1])
     print('Plot saved at', plot_name, sep=' ')
     return
