@@ -18,9 +18,7 @@ python main.py -path data.csv
 
 The program outputs the cluster memberships and the density plot.
 
-**Note**: The data must be a (n_instances, n_features) .csv file. The program also supports other embeddings methods (PCA and Isomap).
-
-<br>
+**Note**: The data must be a (n_instances, n_features) .csv file. The program also supports other embedding methods (PCA and Isomap).
 
 ## References:
 
