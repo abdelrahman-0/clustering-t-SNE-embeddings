@@ -1,22 +1,18 @@
 import argparse
 import os
-import matplotlib
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import cv2
 from sklearn.manifold import TSNE, Isomap
 from sklearn.decomposition import PCA
 from scipy.stats import gaussian_kde
 from skimage.segmentation import watershed, find_boundaries
 from sklearn import preprocessing
-from scipy.spatial import ConvexHull
 
 METHODS=['pca', 'tsne', 'isomap']
-
-DENSITY_THRESHOLD = 5e-5
+DENSITY_THRESHOLD = 4e-5
 PERPLEXITY = 30
-PAD_RATIO = 0.5
+PAD_RATIO = 0.6
 
 def parse_args():
     '''
@@ -77,9 +73,6 @@ def embed_data(data: pd.DataFrame, method='tsne'):
         embedded_data = apply_pca(normalized_data)
     elif method == 'isomap':
         embedded_data = apply_isomap(normalized_data)
-    color_dict = {'Iris-setosa' : 'red',
-                'Iris-versicolor' : '#00aaff',
-                'Iris-virginica' : '#00ff00'}
     return embedded_data
 
 
@@ -97,7 +90,10 @@ def get_positions_from_data(data: np.array, resolution=1000):
     ymax += PAD_RATIO * yrange
     X, Y = np.meshgrid(np.linspace(xmin, xmax, resolution), np.linspace(ymin, ymax, resolution))
     positions = np.array([X.ravel(), Y.ravel()])
-    return positions, X.shape
+    embedded_data_indices = np.zeros(data.shape)
+    embedded_data_indices[:, 0] = (data[:, 0] - xmin) * resolution / ((2 * PAD_RATIO + 1) * xrange)
+    embedded_data_indices[:, 1] = (data[:, 1] - ymin) * resolution / ((2 * PAD_RATIO + 1) * yrange)
+    return positions, X.shape, embedded_data_indices.astype(int)
 
 
 def get_density_matrix(data: np.array):
@@ -106,19 +102,20 @@ def get_density_matrix(data: np.array):
     of a KDE model that was fitted using the data.
     '''
     kde_model = gaussian_kde(data.T)
-    positions, shape = get_positions_from_data(data)
+    positions, shape, embedded_data_indices = get_positions_from_data(data)
     density_matrix = np.reshape(kde_model(positions).T, shape)
-    return positions, density_matrix
+    return positions, density_matrix, embedded_data_indices
 
 
-def get_cluster_labels(density_matrix: np.array):
+def get_cluster_mask(density_matrix: np.array):
     '''
     Cluster the points in the density matrix using the watershed algorithm.
     '''
     inverted_matrix = -density_matrix
     mask = density_matrix > DENSITY_THRESHOLD
     cluster_mask = watershed(inverted_matrix, mask=mask)
-    print('Found {} unique clusters'.format(len(np.unique(cluster_mask))-1))
+    unique_clusters = np.unique(cluster_mask)
+    print('Found {} unique clusters'.format(len(unique_clusters)-1 if 0 in unique_clusters else len(unique_clusters)))
     return cluster_mask
 
 
@@ -129,15 +126,16 @@ def cluster_data(data: np.array):
     assert len(data.shape)==2, 'Incorrect embedding shape.'
     assert data.shape[1]==2, 'Expected 2D embeddings to plot.'
     assert data.shape[0]>=1, 'Empty embeddings list.'
-    positions, density_matrix = get_density_matrix(data)
-    cluster_labels = get_cluster_labels(density_matrix)
-    return positions, density_matrix, cluster_labels
+    positions, density_matrix, embedded_data_indices = get_density_matrix(data)
+    cluster_mask = get_cluster_mask(density_matrix)
+    return positions, density_matrix, cluster_mask, embedded_data_indices
 
 
 def set_white_pixels_transparent(image):
     '''
     Set all white pixels as transparent pixels.
     '''
+    plt.imshow(image[::-1], cmap='viridis', aspect='auto')
     h, w, _ = image.shape
     new_image = np.concatenate([image, np.full((h, w, 1), 1, dtype=image.dtype)], axis=-1)
     white = np.all(image == [1, 1, 1], axis=-1)
@@ -145,17 +143,30 @@ def set_white_pixels_transparent(image):
     return new_image
 
 
-def show_clustered_data(data_path: str, density_matrix: np.array, clustered_data: np.array):
+def get_cluster_labels(embedded_data_indices: np.array, clustered_data: np.array):
+    '''
+    Returns clusters labels that each 2D embedding belongs to.
+    '''
+    cluster_labels = clustered_data[embedded_data_indices[:, 0], embedded_data_indices[:, 1]]
+    return cluster_labels
+
+
+def export_clustered_data(data_path: str, embedded_data_indices: np.array, density_matrix: np.array, clustered_data: np.array):
     '''
     Plot and save embedded data as 2D points.
     '''
-    plot_name = os.path.splitext(data_path)[0] + '.png'
+    plot_name = os.path.splitext(data_path)[0] + '_densitymap.png'
+    cluster_csv_name = os.path.splitext(data_path)[0] + '_cluster_labels.csv'
     watershed_boundaries = find_boundaries(clustered_data, mode='thick')
-    im = plt.imshow(density_matrix, cmap='jet', aspect='auto')
+    im = plt.imshow(density_matrix, cmap='Spectral_r', aspect='auto')
     final_plot = im.cmap(im.norm(density_matrix))[:, :, :3]
     final_plot[clustered_data == 0] = [1,1,1]
     final_plot[watershed_boundaries==1] = [0,0,0]
     final_plot = set_white_pixels_transparent(final_plot)
     plt.imsave(plot_name, final_plot[::-1])
     print('Plot saved at', plot_name, sep=' ')
+    cluster_labels = get_cluster_labels(embedded_data_indices, clustered_data)
+    cluster_labels_df = pd.DataFrame(cluster_labels, columns=['cluster_labels'])
+    cluster_labels_df.to_csv(cluster_csv_name, index=False)
+    print('Cluster memberships saved at', cluster_csv_name, sep=' ')
     return

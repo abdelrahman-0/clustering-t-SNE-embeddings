@@ -5,19 +5,23 @@ Behaviors of organisms are sometimes encoded as high-dimensional feature vectors
 
 <br>
 <p align='center'>
-<img src='iris_embeddings.png'  width=50%>
-</p>
-<p align='center'>
-<img src='iris.png'  width=50%>
+<img src='iris_summary.png' width=100%>
 </p>
 
-### Usage
+
+## Usage
 Install conda environment, activate it and run the following command in your terminal:
 
 ```bash
 python main.py -path data.csv
 ```
 
-### References:
+The program outputs the cluster memberships and the density plot.
+
+**Note**: The data must be a (n_instances, n_features) .csv file. The program also supports other embeddings methods (PCA and Isomap).
+
+<br>
+
+## References:
 
 Berman, Gordon J., et al. "Mapping the stereotyped behaviour of freely moving fruit flies." Journal of The Royal Society Interface 11.99 (2014): 20140672.

@@ -11,7 +11,7 @@ if __name__ == '__main__':
     embedded_data = embed_data(data, method='tsne')
 
     # Cluster data
-    positions, density_matrix, clustered_data = cluster_data(embedded_data)
+    positions, density_matrix, clustered_data, embedded_data_indices = cluster_data(embedded_data)
 
     # Plot and save results
-    show_clustered_data(args.path, density_matrix, clustered_data)
+    export_clustered_data(args.path, embedded_data_indices ,density_matrix, clustered_data)
